@@ -1,7 +1,7 @@
 from modules import *
 
 
-def get_model():
+def build_model():
     # Encoder:
     input_encoder = Input(shape=(hp.max_chars,))
 
@@ -15,7 +15,7 @@ def get_model():
     # Decoder-part1-Prenet:
     input_decoder = Input(shape=(None, hp.n_mels))
     prenet_decoding = get_pre_net(input_decoder)
-    attention_rnn_output = get_attention_RNN()(prenet_decoding)
+    attention_rnn_output, state = GRU(256, return_state=True)(prenet_decoding)
 
     # Attention
     attention_rnn_output_repeated = RepeatVector(
@@ -38,16 +38,14 @@ def get_model():
         input_of_decoder_rnn_projected)
 
     mel_hat = Dense(hp.max_mel * hp.n_mels * hp.r)(output_of_decoder_rnn)
-    mel_hat_ = Reshape((hp.max_mel, hp.n_mels * hp.r))(mel_hat)
+    mel_hat = Reshape((hp.max_mel, hp.n_mels * hp.r))(mel_hat)
 
-    n_mels = hp.n_mels
-
-    mel_hat_last_frame = Lambda(lambda x: x[:, :, -n_mels:])(mel_hat_)
-    post_process_output = get_CBHG_post_process(mel_hat_last_frame)
+    mel_hat_last_frame = Lambda(lambda x: x[:, :, -hp.n_mels:])(mel_hat)
+    post_process_output = get_CBHG_decoder(mel_hat_last_frame)
 
     z_hat = Dense(hp.max_mag * (1 + hp.n_fft // 2))(post_process_output)
-    z_hat_ = Reshape((hp.max_mag, (1 + hp.n_fft // 2)))(z_hat)
+    z_hat = Reshape((hp.max_mag, (1 + hp.n_fft // 2)))(z_hat)
 
     model = k.Model(inputs=[input_encoder, input_decoder],
-                    outputs=[mel_hat_, z_hat_])
+                    outputs=[mel_hat, z_hat])
     return model

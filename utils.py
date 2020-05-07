@@ -1,3 +1,4 @@
+import codecs
 import copy
 
 import librosa
@@ -31,21 +32,11 @@ def griffin_lim(spectrogram, n_iter=hp.n_iter):
 
 
 def spectrogram2wav(mag):
-    # Транспонируем
     mag = mag.T
-
-    # Денормализуем
     mag = (np.clip(mag, 0, 1) * hp.max_db) - hp.max_db + hp.ref_db
-
-    # Возвращаемся от децибел к аплитудам
     mag = np.power(10.0, mag * 0.05)
-
-    # Восстанавливаем сигнал
     wav = griffin_lim(mag ** hp.power)
-
-    # De-pre-emphasis фильтр
     wav = signal.lfilter([1], [1, -hp.preemphasis], wav)
-
     wav, _ = librosa.effects.trim(wav)
 
     return wav.astype(np.float32)
@@ -63,26 +54,14 @@ def load_spectrograms(path):
     mel_basis = librosa.filters.mel(hp.sr, hp.n_fft, hp.n_mels)
     mel = np.dot(mel_basis, mag)
 
-    # Переводим в децибелы
     mel = 20 * np.log10(np.maximum(1e-5, mel))
     mag = 20 * np.log10(np.maximum(1e-5, mag))
 
-    # Нормализуем
     mel = np.clip((mel - hp.ref_db + hp.max_db) / hp.max_db, 1e-8, 1)
     mag = np.clip((mag - hp.ref_db + hp.max_db) / hp.max_db, 1e-8, 1)
 
-    # Транспонируем и приводим к нужным типам
     mel = mel.T.astype(np.float32)
     mag = mag.T.astype(np.float32)
-
-    # Добиваем нулями до правильных размерностей
-    t = mel.shape[0]
-    num_paddings = hp.r - (t % hp.r) if t % hp.r != 0 else 0
-    mel = np.pad(mel, [[0, num_paddings], [0, 0]], mode="constant")
-    mag = np.pad(mag, [[0, num_paddings], [0, 0]], mode="constant")
-
-    # Понижаем частоту дискретизации для мел-спектра
-    mel = mel[::hp.r, :]
 
     return mel, mag
 
@@ -94,18 +73,21 @@ def data_load(file_names, data_texts):
     texts = []
 
     for idx, fname in enumerate(file_names):
-        fname += '.npy'
-        mel = np.load('mels/' + fname)
-        mag = np.load('mags/' + fname)
+        if hp.prepro:
+            fname += '.npy'
+            mel = np.load('mels/' + fname)
+            mag = np.load('mags/' + fname)
+        else:
+            fname += '.wav'
+            mel, mag = load_spectrograms(hp.path + fname)
+
         t = mel.shape[0]
-        nb_paddings = hp.r - (t % hp.r) if t % hp.r != 0 else 0
-        mel = np.pad(mel,
-                     [[0, nb_paddings], [0, 0]],
-                     mode="constant")
-        mag = np.pad(mag,
-                     [[0, nb_paddings], [0, 0]],
-                     mode="constant")
+        num_paddings = hp.r - (t % hp.r) if t % hp.r != 0 else 0
+        mel = np.pad(mel, [[0, num_paddings], [0, 0]], mode="constant")
+        mag = np.pad(mag, [[0, num_paddings], [0, 0]], mode="constant")
+
         mel = mel.reshape((-1, hp.n_mels * hp.r))
+
         decoder_input = tf.concat((tf.zeros_like(mel[:1, :]),
                                    mel[:-1, :]), 0)
         decoder_input = decoder_input[:, -hp.n_mels:]
@@ -129,13 +111,13 @@ def data_load(file_names, data_texts):
             text_int.append(hp.vocab.find(char))
         texts += [text_int]
 
-    mels = np.array(mels)
-    mags = np.array(mags)
-    decoder_data = np.array(decoder_data)
+    mels = np.array(mels, dtype=np.float32)
+    mags = np.array(mags, dtype=np.float32)
+    decoder_data = np.array(decoder_data, dtype=np.float32)
 
     return mels, mags, decoder_data, \
-        k.preprocessing.sequence.pad_sequences(texts, maxlen=hp.max_chars,
-                                               value=hp.vocab.find('P'))
+           k.preprocessing.sequence.pad_sequences(texts, maxlen=hp.max_chars,
+                                                  value=hp.vocab.find('P'))
 
 
 class DataGen(k.utils.Sequence):
@@ -144,7 +126,7 @@ class DataGen(k.utils.Sequence):
         names_arr = []
         texts_arr = []
         for i in data:
-            name, _, text = i.split('|')
+            name, text = i.split('|')
             names_arr.append(name)
             texts_arr.append(text.replace('\r', '').replace('\n', ''))
 
@@ -159,6 +141,26 @@ class DataGen(k.utils.Sequence):
         batch_names = self.filenames[idx * self.batch_size: (idx + 1) * self.batch_size]
         batch_texts = self.texts[idx * self.batch_size: (idx + 1) * self.batch_size]
         mels, mags, decoder_data, texts = data_load(batch_names, batch_texts)
-        # print(batch_names)
         return [texts, decoder_data], \
                [mels, mags]
+
+
+def get_test_data():
+    metadata = codecs.open(hp.path + 'metadata.csv', 'r', 'utf-8').readlines()
+    name, _, text = metadata[0].split('|')
+    text = text.replace('\r', '').replace('\n', '')
+    return data_load([name], [text])
+
+
+def check_symbols():
+    with open(hp.path + 'metadata.csv', 'r', encoding='utf-8') as file:
+        symbols = set()
+        for line in file:
+            for symbol in line:
+                if symbol not in symbols:
+                    symbols.add(symbol)
+                    print(symbol)
+    print('Symbols')
+    for s in symbols:
+        if s not in hp.vocab:
+            print(s)

@@ -36,12 +36,12 @@ def get_CBHG_encoder(input_data):
 
     highway_net = highway_layer(residual, hp.num_highwaynet_blocks, activation='relu')
 
-    CBHG_encoder = Bidirectional(GRU(128, return_sequences=True))(highway_net)
+    cbhg_encoder = Bidirectional(GRU(128, return_sequences=True))(highway_net)
 
-    return CBHG_encoder
+    return cbhg_encoder
 
 
-def get_CBHG_post_process(input_data):
+def get_CBHG_decoder(input_data):
     conv1dbank = get_conv1dbank(hp.decoder_num_banks, input_data)
     conv1dbank = MaxPooling1D(pool_size=2, strides=1,
                               padding='same')(conv1dbank)
@@ -57,9 +57,9 @@ def get_CBHG_post_process(input_data):
 
     highway_net = highway_layer(residual, 4, activation='relu')
 
-    CBHG_encoder = Bidirectional(GRU(128))(highway_net)
+    cbhg_decoder = Bidirectional(GRU(128))(highway_net)
 
-    return CBHG_encoder
+    return cbhg_decoder
 
 
 def get_pre_net(input_data):
@@ -82,10 +82,6 @@ def get_decoder_RNN_output(input_data):
     decoder_rnn = Add()([inp2, rnn2])
 
     return decoder_rnn
-
-
-def get_attention_RNN():
-    return GRU(256)
 
 
 def get_attention_context(encoder_output, attention_rnn_output):

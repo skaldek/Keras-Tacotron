@@ -1,20 +1,21 @@
-import codecs
 import os
 
 import librosa
-from utils import data_load, spectrogram2wav
+
 import hyperparams as hp
-from tensorflow.keras.models import load_model
+from model import build_model
+from utils import spectrogram2wav, get_test_data
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
-metadata = codecs.open(hp.path + 'metadata.csv', 'r', 'utf-8').readlines()
-name, _, text = metadata[0].split('|')
-text = text.replace('\r', '').replace('\n', '')
-mels, mags, decoder_data, texts = data_load([name], [text])
-model = load_model('Tacotron.h5')
-mag = model.predict([texts, decoder_data])[1]
+mels, mags, decoder_data, texts = get_test_data()
+model = build_model()
+model.load_weights('Tacotron (2).h5')
+prediction = model.predict([texts, decoder_data])
 
-wav = spectrogram2wav(mag[0])
+print(prediction[0][0])
+print('""')
+print(mels[0])
+wav = spectrogram2wav(prediction[1][0])
 
 librosa.output.write_wav('audio.wav', wav, sr=hp.sr)
